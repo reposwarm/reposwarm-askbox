@@ -1,29 +1,30 @@
 """RepoSwarm Askbox — AI agent that answers architecture questions across repos."""
 
 import argparse
+import asyncio
 import json
 import os
+import subprocess
 import sys
 import time
 from pathlib import Path
 
-from src.arch_hub import ArchHub
-from src.tools.arch_tools import list_repos, read_arch, search_arch, set_arch_hub
+from src.adapters import AgentAdapter
 
 
 SYSTEM_PROMPT = """You are an expert software architect analyzing a portfolio of repositories.
 
-You have access to an arch-hub — a collection of .arch.md architecture documentation files, 
-one per repository. Each file contains standardized sections covering high-level overview, 
+You have access to an arch-hub directory containing .arch.md architecture documentation files,
+one per repository. Each file contains standardized sections covering high-level overview,
 module deep dives, dependencies, security, testing patterns, and more.
 
 Your job is to answer architecture questions by reading and reasoning across these files.
 
 ## How to work:
 
-1. **Start with list_repos()** to see all available repos and their summaries.
-2. **Read relevant arch files** using read_arch(repo) or read_arch(repo, section) for specific sections.
-3. **Search across repos** using search_arch(query) when looking for specific technologies or patterns.
+1. **Start by listing files** to see all available .arch.md files and understand the portfolio.
+2. **Read relevant arch files** — focus on repos most relevant to the question.
+3. **Search across files** when looking for specific technologies, patterns, or concepts.
 4. **Reason across repos** — your unique value is connecting information across multiple repos.
 5. **Be specific** — cite which repos and sections your conclusions come from.
 
@@ -42,40 +43,32 @@ Write your answer as clear, well-structured markdown. Include:
 """
 
 
-def create_agent(model_id: str | None = None):
-    """Create the Strands agent with arch-hub tools."""
-    from strands import Agent
-
-    # Determine provider and model
-    use_bedrock = os.environ.get("CLAUDE_CODE_USE_BEDROCK") == "1"
-    litellm_url = os.environ.get("LITELLM_API_URL")
-    
-    if use_bedrock:
-        from strands.models.bedrock import BedrockModel
-        model = BedrockModel(
-            model_id=model_id or os.environ.get("MODEL_ID", "us.anthropic.claude-sonnet-4-20250514-v1:0"),
-            region_name=os.environ.get("AWS_REGION", "us-east-1"),
-        )
-    elif litellm_url:
-        from strands.models.litellm import LiteLLMModel
-        model = LiteLLMModel(
-            model_id=model_id or os.environ.get("MODEL_ID", "claude-sonnet-4-20250514"),
-            api_base=litellm_url,
-            api_key=os.environ.get("LITELLM_API_KEY", ""),
+def clone_arch_hub(url: str, path: str, branch: str = "main") -> None:
+    """Clone or pull the arch-hub repository."""
+    target = Path(path)
+    if (target / ".git").exists():
+        subprocess.run(
+            ["git", "-C", str(target), "pull", "--ff-only"],
+            capture_output=True, text=True, check=True,
         )
     else:
-        from strands.models.anthropic import AnthropicModel
-        model = AnthropicModel(
-            model_id=model_id or os.environ.get("MODEL_ID", "claude-sonnet-4-20250514"),
+        target.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            ["git", "clone", "--depth", "1", "-b", branch, url, str(target)],
+            capture_output=True, text=True, check=True,
         )
 
-    agent = Agent(
-        model=model,
-        system_prompt=SYSTEM_PROMPT,
-        tools=[list_repos, read_arch, search_arch],
-    )
-    
-    return agent
+
+def get_adapter(adapter_name: str, model: str | None = None) -> AgentAdapter:
+    """Factory function to create the appropriate agent adapter."""
+    if adapter_name == "claude-agent-sdk":
+        from src.adapters.claude_agent import ClaudeAgentAdapter
+        return ClaudeAgentAdapter(model=model)
+    elif adapter_name == "strands":
+        from src.adapters.strands_adapter import StrandsAdapter
+        return StrandsAdapter(model_id=model)
+    else:
+        raise ValueError(f"Unknown adapter: {adapter_name}. Use 'claude-agent-sdk' or 'strands'.")
 
 
 def write_status(msg: str, status_file: str | None = None):
@@ -88,51 +81,46 @@ def write_status(msg: str, status_file: str | None = None):
         }))
 
 
-def run_question(
+async def run_question(
     question: str,
     arch_hub_url: str,
     arch_hub_branch: str = "main",
+    arch_hub_path: str = "/tmp/arch-hub",
     output_dir: str = "/output",
     status_file: str | None = None,
-    repos_filter: list[str] | None = None,
-    model_id: str | None = None,
-    max_tool_calls: int = 50,
+    adapter_name: str = "claude-agent-sdk",
+    model: str | None = None,
 ) -> str:
     """Run a question against the arch-hub and return the answer."""
-    
+
     # Step 1: Clone arch-hub
     write_status("Cloning arch-hub...", status_file)
-    hub = ArchHub()
-    hub.clone(arch_hub_url, arch_hub_branch)
-    
-    # Step 2: Load and index
-    write_status("Loading architecture files...", status_file)
-    hub.load(repos_filter)
-    write_status(f"Loaded {len(hub.repos)} architecture files", status_file)
-    
-    if not hub.repos:
-        error = "No architecture files found in arch-hub"
-        write_status(f"Error: {error}", status_file)
-        return error
-    
-    # Step 3: Set up tools
-    set_arch_hub(hub)
-    
-    # Step 4: Run agent
-    write_status("Running agent...", status_file)
-    agent = create_agent(model_id)
-    
-    result = agent(question)
-    answer = str(result)
-    
-    # Step 5: Write output
+    clone_arch_hub(arch_hub_url, arch_hub_path, arch_hub_branch)
+    write_status("Arch-hub ready", status_file)
+
+    # Step 2: Create adapter
+    adapter = get_adapter(adapter_name, model)
+    write_status(f"Using adapter: {adapter_name}", status_file)
+
+    # Step 3: Run agent
+    def on_status(msg):
+        write_status(msg, status_file)
+
+    answer = await adapter.ask(
+        question=question,
+        arch_hub_path=arch_hub_path,
+        system_prompt=SYSTEM_PROMPT,
+        on_status=on_status,
+    )
+
+    # Step 4: Write output
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     answer_file = output_path / "answer.md"
     answer_file.write_text(answer, encoding="utf-8")
-    
+
     write_status(f"Answer written to {answer_file} ({len(answer)} chars)", status_file)
-    
+
     return answer
 
 
@@ -142,43 +130,40 @@ def main():
     parser.add_argument("--question", "-q", help="Question to ask")
     parser.add_argument("--arch-hub-url", help="Git URL of arch-hub repo")
     parser.add_argument("--arch-hub-branch", default="main", help="Branch to clone")
+    parser.add_argument("--arch-hub-path", default="/tmp/arch-hub", help="Local clone path")
     parser.add_argument("--output-dir", default="/output", help="Output directory")
-    parser.add_argument("--repos", help="Comma-separated list of repos to scope to")
+    parser.add_argument("--adapter", default="claude-agent-sdk", choices=["claude-agent-sdk", "strands"],
+                        help="Agent adapter to use (default: claude-agent-sdk)")
     parser.add_argument("--model", help="Model ID override")
-    parser.add_argument("--max-tool-calls", type=int, default=50, help="Max agent tool calls")
     args = parser.parse_args()
-    
+
     question = args.question or os.environ.get("QUESTION")
     arch_hub_url = args.arch_hub_url or os.environ.get("ARCH_HUB_URL")
     arch_hub_branch = args.arch_hub_branch or os.environ.get("ARCH_HUB_BRANCH", "main")
+    arch_hub_path = args.arch_hub_path or os.environ.get("ARCH_HUB_PATH", "/tmp/arch-hub")
     output_dir = args.output_dir or os.environ.get("OUTPUT_DIR", "/output")
     status_file = os.environ.get("STATUS_FILE")
-    model_id = args.model or os.environ.get("MODEL_ID")
-    max_tool_calls = args.max_tool_calls or int(os.environ.get("MAX_TOOL_CALLS", "50"))
-    
-    repos_filter = None
-    repos_str = args.repos or os.environ.get("REPOS_FILTER")
-    if repos_str:
-        repos_filter = [r.strip() for r in repos_str.split(",")]
-    
+    adapter_name = args.adapter or os.environ.get("ASKBOX_ADAPTER", "claude-agent-sdk")
+    model = args.model or os.environ.get("MODEL_ID")
+
     if not question:
         print("Error: QUESTION env var or --question flag required", file=sys.stderr)
         sys.exit(1)
     if not arch_hub_url:
         print("Error: ARCH_HUB_URL env var or --arch-hub-url flag required", file=sys.stderr)
         sys.exit(1)
-    
+
     try:
-        answer = run_question(
+        answer = asyncio.run(run_question(
             question=question,
             arch_hub_url=arch_hub_url,
             arch_hub_branch=arch_hub_branch,
+            arch_hub_path=arch_hub_path,
             output_dir=output_dir,
             status_file=status_file,
-            repos_filter=repos_filter,
-            model_id=model_id,
-            max_tool_calls=max_tool_calls,
-        )
+            adapter_name=adapter_name,
+            model=model,
+        ))
         print(f"\n{'='*60}")
         print("ANSWER:")
         print(f"{'='*60}\n")
