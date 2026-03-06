@@ -12,6 +12,7 @@ RUN pip install --no-cache-dir .
 COPY src/ src/
 
 ENV OUTPUT_DIR=/output
+ENV IS_SANDBOX=1
 RUN mkdir -p /output
 
 ENTRYPOINT ["python3", "-m", "src.agent"]
