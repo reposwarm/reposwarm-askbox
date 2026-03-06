@@ -37,8 +37,11 @@ Same image everywhere. No vendor lock-in.
 Run a question directly against the sample arch-hub:
 
 ```bash
-# Build the image
+# Build the image locally
 docker build -t reposwarm/askbox .
+
+# Or pull the pre-built image
+docker pull ghcr.io/reposwarm/askbox:latest
 
 # Ask a question
 docker run --rm \
@@ -46,7 +49,7 @@ docker run --rm \
   -e QUESTION="What testing frameworks are used across all repos and how do they compare?" \
   -e ANTHROPIC_API_KEY=sk-ant-... \
   -v $(pwd)/output:/output \
-  reposwarm/askbox
+  ghcr.io/reposwarm/askbox:latest
 
 # Read the answer
 cat output/answer.md
@@ -63,7 +66,7 @@ docker run --rm \
   -e AWS_ACCESS_KEY_ID=AKIA... \
   -e AWS_SECRET_ACCESS_KEY=... \
   -v $(pwd)/output:/output \
-  reposwarm/askbox
+  ghcr.io/reposwarm/askbox:latest
 ```
 
 ## Environment Variables
