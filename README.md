@@ -61,6 +61,17 @@ cat output/answer.md
 With Amazon Bedrock:
 
 ```bash
+# Option 1: Bedrock API key (simplest — no IAM setup needed)
+docker run --rm \
+  -e ARCH_HUB_URL=https://github.com/royosherove/repo-swarm-sample-results-hub.git \
+  -e QUESTION="How do the state management approaches differ between React and Vue repos?" \
+  -e CLAUDE_CODE_USE_BEDROCK=1 \
+  -e AWS_REGION=us-east-1 \
+  -e AWS_BEARER_TOKEN_BEDROCK=br-... \
+  -v $(pwd)/output:/output \
+  ghcr.io/reposwarm/askbox:latest
+
+# Option 2: IAM access keys
 docker run --rm \
   -e ARCH_HUB_URL=https://github.com/royosherove/repo-swarm-sample-results-hub.git \
   -e QUESTION="How do the state management approaches differ between React and Vue repos?" \
@@ -68,6 +79,15 @@ docker run --rm \
   -e AWS_REGION=us-east-1 \
   -e AWS_ACCESS_KEY_ID=AKIA... \
   -e AWS_SECRET_ACCESS_KEY=... \
+  -v $(pwd)/output:/output \
+  ghcr.io/reposwarm/askbox:latest
+
+# Option 3: IAM role (on EC2/ECS — credentials from instance metadata)
+docker run --rm \
+  -e ARCH_HUB_URL=https://github.com/royosherove/repo-swarm-sample-results-hub.git \
+  -e QUESTION="How do the state management approaches differ between React and Vue repos?" \
+  -e CLAUDE_CODE_USE_BEDROCK=1 \
+  -e AWS_REGION=us-east-1 \
   -v $(pwd)/output:/output \
   ghcr.io/reposwarm/askbox:latest
 ```
@@ -79,13 +99,20 @@ docker run --rm \
 | `QUESTION` | Yes | The architecture question to answer |
 | `ARCH_HUB_URL` | Yes | Git URL of the arch-hub repository |
 | `ARCH_HUB_BRANCH` | No | Branch to clone (default: `main`) |
-| `ANTHROPIC_API_KEY` | * | Anthropic API key |
-| `CLAUDE_CODE_USE_BEDROCK` | * | Set to `1` for Bedrock |
-| `AWS_REGION` | * | AWS region for Bedrock |
-| `AWS_ACCESS_KEY_ID` | * | AWS access key (for Bedrock) |
-| `AWS_SECRET_ACCESS_KEY` | * | AWS secret key (for Bedrock) |
-| `LITELLM_API_URL` | * | LiteLLM proxy URL |
+| **Anthropic API** | | |
+| `ANTHROPIC_API_KEY` | * | Anthropic API key (from platform.claude.com) |
+| **Amazon Bedrock** | | |
+| `CLAUDE_CODE_USE_BEDROCK` | * | Set to `1` to enable Bedrock |
+| `AWS_REGION` | * | AWS region (e.g. `us-east-1`) |
+| `AWS_BEARER_TOKEN_BEDROCK` | * | Bedrock API key — simplest auth, no IAM needed |
+| `AWS_ACCESS_KEY_ID` | * | IAM access key (alternative to API key) |
+| `AWS_SECRET_ACCESS_KEY` | * | IAM secret key |
+| `AWS_SESSION_TOKEN` | * | Session token (for temporary credentials) |
+| `AWS_PROFILE` | * | AWS SSO profile name |
+| **LiteLLM Proxy** | | |
+| `ANTHROPIC_BASE_URL` | * | LiteLLM proxy URL |
 | `LITELLM_API_KEY` | * | LiteLLM API key |
+| **Options** | | |
 | `ASKBOX_ADAPTER` | No | Agent adapter: `claude-agent-sdk` (default) or `strands` |
 | `MODEL_ID` | No | Override model (default: claude-sonnet-4-20250514) |
 | `MAX_TOOL_CALLS` | No | Max agent tool invocations (default: 50) |
@@ -93,7 +120,7 @@ docker run --rm \
 | `STATUS_FILE` | No | Write progress updates to this file |
 | `REPOS_FILTER` | No | Comma-separated list of repos to scope the question to |
 
-\* At least one LLM provider must be configured.
+\* At least one LLM provider must be configured. For Bedrock, the simplest option is `AWS_BEARER_TOKEN_BEDROCK` (get one from the [Bedrock console](https://console.aws.amazon.com/bedrock/) → API keys). For EC2/ECS with an IAM role, just set `CLAUDE_CODE_USE_BEDROCK=1` and `AWS_REGION`.
 
 ## Agent Tools
 
