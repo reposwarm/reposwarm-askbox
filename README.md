@@ -35,6 +35,8 @@ The container is designed to run anywhere:
 
 Same image everywhere. No vendor lock-in.
 
+> **Note:** The image sets `IS_SANDBOX=1` so the Claude Agent SDK's `bypassPermissions` mode works as root inside Docker. This is baked in — you don't need to set it yourself.
+
 ## Quick Start (standalone)
 
 Run a question directly against the sample arch-hub:
@@ -119,6 +121,7 @@ docker run --rm \
 | `OUTPUT_DIR` | No | Where to write answer (default: `/output`) |
 | `STATUS_FILE` | No | Write progress updates to this file |
 | `REPOS_FILTER` | No | Comma-separated list of repos to scope the question to |
+| `IS_SANDBOX` | No | Set to `1` for root/Docker — already set in image |
 
 \* At least one LLM provider must be configured. For Bedrock, the simplest option is `AWS_BEARER_TOKEN_BEDROCK` (get one from the [Bedrock console](https://console.aws.amazon.com/bedrock/) → API keys). For EC2/ECS with an IAM role, just set `CLAUDE_CODE_USE_BEDROCK=1` and `AWS_REGION`.
 
