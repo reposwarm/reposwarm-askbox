@@ -104,6 +104,14 @@ async def lifespan(app: FastAPI):
     else:
         print("[askbox] No ARCH_HUB_URL set — start without arch-hub, POST to /arch-hub/refresh later", flush=True)
 
+    # Auto-detect existing arch files at ARCH_HUB_PATH (e.g. volume-mounted)
+    if not arch_hub_ready:
+        existing = list(Path(ARCH_HUB_PATH).rglob("*.arch.md"))
+        if existing:
+            arch_hub_repo_count = len(existing)
+            arch_hub_ready = True
+            print(f"[askbox] Auto-detected {arch_hub_repo_count} repos at {ARCH_HUB_PATH}", flush=True)
+
     yield  # Server runs
 
     print("[askbox] Shutting down", flush=True)
