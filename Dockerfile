@@ -13,6 +13,10 @@ COPY src/ src/
 
 ENV OUTPUT_DIR=/output
 ENV IS_SANDBOX=1
+ENV ASKBOX_PORT=8082
 RUN mkdir -p /output
 
-ENTRYPOINT ["python3", "-m", "src.agent"]
+EXPOSE 8082
+
+# Default: HTTP server mode. Override with: docker run ... python3 -m src.agent --question "..."
+ENTRYPOINT ["python3", "-m", "src.server"]
