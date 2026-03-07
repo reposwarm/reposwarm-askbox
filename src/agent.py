@@ -46,6 +46,9 @@ Write your answer as clear, well-structured markdown. Include:
 def clone_arch_hub(url: str, path: str, branch: str = "main") -> None:
     """Clone or pull the arch-hub repository."""
     target = Path(path)
+    # Inject GitHub token for private repos
+    auth_url = _inject_git_auth(url)
+
     if (target / ".git").exists():
         subprocess.run(
             ["git", "-C", str(target), "pull", "--ff-only"],
@@ -54,9 +57,22 @@ def clone_arch_hub(url: str, path: str, branch: str = "main") -> None:
     else:
         target.mkdir(parents=True, exist_ok=True)
         subprocess.run(
-            ["git", "clone", "--depth", "1", "-b", branch, url, str(target)],
+            ["git", "clone", "--depth", "1", "-b", branch, auth_url, str(target)],
             capture_output=True, text=True, check=True,
         )
+        # Strip credentials from stored remote URL
+        subprocess.run(
+            ["git", "-C", str(target), "remote", "set-url", "origin", url],
+            capture_output=True, text=True,
+        )
+
+
+def _inject_git_auth(url: str) -> str:
+    """Inject GITHUB_TOKEN into URL for private repo access."""
+    token = os.environ.get("GITHUB_TOKEN", "")
+    if token and "github.com" in url and "x-access-token" not in url:
+        return url.replace("https://", f"https://x-access-token:{token}@")
+    return url
 
 
 def get_adapter(adapter_name: str, model: str | None = None) -> AgentAdapter:

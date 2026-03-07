@@ -29,6 +29,9 @@ class ArchHub:
 
     def clone(self, url: str, branch: str = "main") -> None:
         """Clone (or pull) the arch-hub repo."""
+        # Inject GitHub token if available (for private repos)
+        auth_url = self._inject_auth(url)
+
         if (self.path / ".git").exists():
             subprocess.run(
                 ["git", "-C", str(self.path), "pull", "--ff-only"],
@@ -37,9 +40,22 @@ class ArchHub:
         else:
             self.path.mkdir(parents=True, exist_ok=True)
             subprocess.run(
-                ["git", "clone", "--depth", "1", "-b", branch, url, str(self.path)],
+                ["git", "clone", "--depth", "1", "-b", branch, auth_url, str(self.path)],
                 capture_output=True, text=True, check=True
             )
+            # Strip credentials from stored remote URL
+            subprocess.run(
+                ["git", "-C", str(self.path), "remote", "set-url", "origin", url],
+                capture_output=True, text=True
+            )
+
+    @staticmethod
+    def _inject_auth(url: str) -> str:
+        """Inject GITHUB_TOKEN into URL for private repo access."""
+        token = os.environ.get("GITHUB_TOKEN", "")
+        if token and "github.com" in url and "x-access-token" not in url:
+            return url.replace("https://", f"https://x-access-token:{token}@")
+        return url
 
     def load(self, repos_filter: list[str] | None = None) -> None:
         """Load and index all .arch.md files."""
